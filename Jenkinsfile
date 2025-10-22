@@ -16,7 +16,13 @@ pipeline {
                     echo "📦 Starting CI/CD Pipeline"
 
                     // Record trigger and pipeline start times
-                    def triggerTime = env.GIT_COMMITTER_DATE ?: new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'", TimeZone.getTimeZone('UTC'))
+                    def triggerTime = env.GIT_COMMITTER_DATE //?: 
+                    if (!triggerTime) {
+                        echo "⚠️ Latest Git commit not found"
+                        triggerTime = new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'", TimeZone.getTimeZone('UTC'))
+                    } else {
+                        echo "ℹ️ Latest Git commit date: ${triggerTime}"
+                    }
                     def triggerEpoch = sh(script: "date -d '${triggerTime}' +%s", returnStdout: true).trim()
                     def pipelineStartEpoch = sh(script: "date +%s", returnStdout: true).trim()
 
