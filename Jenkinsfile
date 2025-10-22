@@ -42,7 +42,7 @@ pipeline {
             steps {
                 script {
                     // Path to the folder containing all services
-                    def servicesDir = "microservices/microservices"
+                    def servicesDir = "microservices"
                     def services = sh(
                         script: "ls -d ${servicesDir}/*/ | xargs -n 1 basename",
                         returnStdout: true
