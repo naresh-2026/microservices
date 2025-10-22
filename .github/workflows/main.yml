@@ -26,7 +26,7 @@ jobs:
           go-version: '1.22'
 
       - name: Build Go binary
-        working-directory: ./${{ matrix.service }}
+        working-directory: ./microservices/${{ matrix.service }}
         run: |
           echo "🛠 Building Go binary for ${{ matrix.service }}"
           go mod tidy
