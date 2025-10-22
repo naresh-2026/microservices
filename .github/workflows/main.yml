@@ -59,7 +59,7 @@ jobs:
           echo "Deployment of ${{ matrix.service }} took ${duration} seconds"
           echo "duration_${{ matrix.service }}=${duration}" >> $GITHUB_ENV
 
-      - name: Display timing summary
-        if: always()
-        run: |
-          echo "✅ ${{ matrix.service }} pushed to Docker Hub in ${{ env.duration_${{ matrix.service }} }} seconds"
+      # - name: Display timing summary
+      #   if: always()
+      #   run: |
+      #     echo "✅ ${{ matrix.service }} pushed to Docker Hub"
