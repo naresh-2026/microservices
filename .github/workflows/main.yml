@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [service1, service2]  # Add more here when needed
+        service: [service1]  # Add more here when needed
 
     steps:
       - name: Checkout repository
