@@ -32,11 +32,11 @@ pipeline {
             }
         }
 
-        stage('Set up Go') {
-            steps {
-                sh 'go version || sudo apt-get update && sudo apt-get install -y golang'
-            }
-        }
+        // stage('Set up Go') {
+        //     steps {
+        //         sh 'go version || sudo apt-get update && sudo apt-get install -y golang'
+        //     }
+        // }
 
         stage('Build and Push Microservices') {
             steps {
