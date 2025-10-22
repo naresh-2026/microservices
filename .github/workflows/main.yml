@@ -13,21 +13,28 @@ jobs:
         service: [service1]  # Add more here when needed
 
     steps:
+      # 1️⃣ Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Record workflow trigger and start time
+      # 2️⃣ Record workflow trigger time and start time
+      - name: Record trigger and start time
+        id: times
         run: |
           trigger_time=$(date -d "${{ github.event.head_commit.timestamp }}" +%s)
           start_time=$(date +%s)
           delay=$((start_time - trigger_time))
+          echo "trigger_time=${trigger_time}" >> $GITHUB_ENV
+          echo "start_time=${start_time}" >> $GITHUB_ENV
           echo "Trigger-to-start delay: ${delay} seconds"
 
+      # 3️⃣ Setup Go
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
 
+      # 4️⃣ Build Go binary
       - name: Build Go binary
         working-directory: ./microservices/${{ matrix.service }}
         run: |
@@ -35,31 +42,35 @@ jobs:
           go mod tidy
           go build -o app .
 
+      # 5️⃣ Login to Docker Hub
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # 6️⃣ Build Docker image
       - name: Build Docker image
         working-directory: ./microservices/${{ matrix.service }}
         run: |
           echo "🐳 Building Docker image for ${{ matrix.service }}"
           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/githubactions:${{ matrix.service }} .
 
+      # 7️⃣ Testing (optional)
       - name: Testing
         run: sleep 0.4
 
+      # 8️⃣ Push Docker image
       - name: Push Docker image to Docker Hub
         working-directory: ./microservices/${{ matrix.service }}
         run: |
           echo "📤 Pushing Docker image for ${{ matrix.service }}"
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/githubactions:${{ matrix.service }}
 
+      # 9️⃣ Record end time and calculate total duration
       - name: Record end time and calculate duration
-        id: end
         run: |
           end_time=$(date +%s)
-          duration=$((end_time - start_time))
-          echo "Deployment of ${{ matrix.service }} took ${duration} seconds"
-          echo "duration_${{ matrix.service }}=${duration}" >> $GITHUB_ENV
+          echo "Start time: ${{ env.start_time }}"
+          duration=$((end_time - ${{ env.start_time }}))
+          echo "✅ Deployment of ${{ matrix.service }} took ${duration} seconds"
