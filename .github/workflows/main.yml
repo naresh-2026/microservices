@@ -1,0 +1,65 @@
+name: CI/CD - Build and Push Go Microservices to Docker Hub
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-test-push:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [service1, service2]  # Add more here when needed
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Record start time
+        id: start
+        run: echo "start_time=$(date +%s)" >> $GITHUB_ENV
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build Go binary
+        working-directory: ./${{ matrix.service }}
+        run: |
+          echo "🛠 Building Go binary for ${{ matrix.service }}"
+          go mod tidy
+          go build -o app .
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build Docker image
+        run: |
+          echo "🐳 Building Docker image for ${{ matrix.service }}"
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/githubactions:${{ matrix.service }} ./${{ matrix.service }}
+
+      - name: testing
+        run: sleep 0.4
+
+      - name: Push Docker image to Docker Hub
+        run: |
+          echo "📤 Pushing Docker image for ${{ matrix.service }}"
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/githubactions:${{matrix.service }}
+
+      - name: Record end time and calculate duration
+        id: end
+        run: |
+          end_time=$(date +%s)
+          duration=$((end_time - $start_time))
+          echo "Deployment of ${{ matrix.service }} took ${duration} seconds"
+          echo "duration_${{ matrix.service }}=${duration}" >> $GITHUB_ENV
+
+      - name: Display timing summary
+        if: always()
+        run: |
+          echo "✅ ${{ matrix.service }} pushed to Docker Hub in ${{ env.duration_${{ matrix.service }} }} seconds"
