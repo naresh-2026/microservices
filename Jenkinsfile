@@ -3,14 +3,10 @@ pipeline {
     triggers {
         githubPush() // Triggers the pipeline automatically on GitHub push events
     }
-    environment {
-        DOCKERHUB_USERNAME = credentials('dockerhub-username')
-        DOCKERHUB_TOKEN = credentials('dockerhub-token')
-    }
 
     options {
         timestamps()
-        ansiColor('xterm')
+        ansiColor('xterm') // Requires AnsiColor plugin
     }
 
     stages {
@@ -32,24 +28,32 @@ pipeline {
             }
         }
 
-        // stage('Set up Go') {
-        //     steps {
-        //         sh 'go version || sudo apt-get update && sudo apt-get install -y golang'
-        //     }
-        // }
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
 
         stage('Build and Push Microservices') {
             steps {
                 script {
-                    // Path to the folder containing all services
-                    def servicesDir = "microservices"
+                    def servicesDir = "microservices/microservices"
+                    // Safely list directories
                     def services = sh(
-                        script: "ls -d ${servicesDir}/*/ | xargs -n 1 basename",
+                        script: "ls -d ${servicesDir}/*/ 2>/dev/null | xargs -n 1 basename || true",
                         returnStdout: true
-                    ).trim().split("\n")
+                    ).trim()
+
+                    if (!services) {
+                        echo "⚠️ No services found in ${servicesDir}"
+                        services = []
+                    } else {
+                        services = services.split("\n")
+                    }
 
                     echo "🔍 Detected services: ${services.join(', ')}"
 
+                    // Loop through services
                     for (serviceName in services) {
                         echo "🚀 Building and deploying service: ${serviceName}"
                         def startTime = sh(script: "date +%s", returnStdout: true).trim()
@@ -62,18 +66,23 @@ pipeline {
                                 go build -o app .
                             """
 
-                            // Build Docker image
-                            sh """
-                                echo "🐳 Building Docker image for ${serviceName}"
-                                docker build -t ${DOCKERHUB_USERNAME}/githubactions:${serviceName} .
-                            """
+                            // Secure Docker login and build/push
+                            withCredentials([
+                                usernamePassword(credentialsId: 'dockerhub', 
+                                                 usernameVariable: 'DOCKERHUB_USERNAME', 
+                                                 passwordVariable: 'DOCKERHUB_TOKEN')
+                            ]) {
+                                sh """
+                                    echo "🐳 Building Docker image for ${serviceName}"
+                                    docker build -t ${DOCKERHUB_USERNAME}/githubactions:${serviceName} .
 
-                            // Push Docker image
-                            sh """
-                                echo "📤 Pushing Docker image for ${serviceName}"
-                                echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
-                                docker push ${DOCKERHUB_USERNAME}/githubactions:${serviceName}
-                            """
+                                    echo "📤 Logging into Docker Hub"
+                                    echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+
+                                    echo "📤 Pushing Docker image for ${serviceName}"
+                                    docker push ${DOCKERHUB_USERNAME}/githubactions:${serviceName}
+                                """
+                            }
                         }
 
                         def endTime = sh(script: "date +%s", returnStdout: true).trim()
@@ -91,7 +100,7 @@ pipeline {
                 def pipelineEndEpoch = sh(script: "date +%s", returnStdout: true).trim()
                 def totalDuration = pipelineEndEpoch.toInteger() - env.PIPELINE_START.toInteger()
 
-                echo "🎯 Pipeline completed successfully!"
+                echo "🎯 Pipeline completed!"
                 echo "⏱️ Total trigger-to-start delay: ${env.TRIGGER_TO_START_DELAY} seconds"
                 echo "🕒 Total pipeline duration: ${totalDuration} seconds"
             }
