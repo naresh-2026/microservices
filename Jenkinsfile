@@ -16,7 +16,11 @@ pipeline {
                     echo "📦 Starting CI/CD Pipeline"
 
                     // Record trigger and pipeline start times
-                    def triggerTime = env.GIT_COMMITTER_DATE //?: 
+                    //def triggerTime = env.GIT_COMMITTER_DATE //?: 
+                    def triggerTime = sh(
+                        script: "git log -1 --pretty=format:'%cI'",
+                        returnStdout: true
+                    ).trim()
                     if (!triggerTime) {
                         echo "⚠️ Latest Git commit not found"
                         triggerTime = new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'", TimeZone.getTimeZone('UTC'))
@@ -82,6 +86,11 @@ pipeline {
                                     echo "🐳 Building Docker image for ${serviceName}"
                                     docker build -t ${DOCKERHUB_USERNAME}/githubactions:${serviceName} .
 
+                                """
+                                // Delay after building but before pushing for testing
+                                sh 'sleep 0.4'
+
+                                sh """
                                     echo "📤 Logging into Docker Hub"
                                     echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
 
