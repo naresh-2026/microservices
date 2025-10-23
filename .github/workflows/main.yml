@@ -105,7 +105,7 @@ jobs:
     steps:
       - name: Print total pipeline deployment time
         run: |
-          initial_time=${{ needs.initialize-pipeline.outputs.initial_time }}
+          initial_time=$(echo "${{ needs.initialize-pipeline.outputs.initial_time }}" | tr -d '\r\n')
           total_end=$(date +%s)
           total_duration=$((total_end - initial_time))
           echo "🎯 Total pipeline deployment time: ${total_duration} seconds"
