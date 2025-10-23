@@ -50,9 +50,9 @@ pipeline {
                     def servicesDir = "microservices"
                     // Safely list directories
                     def services = sh(
-                        script: "ls -d ${servicesDir}/*/ 2>/dev/null | xargs -n 1 basename || true",
-                        returnStdout: true
-                    ).trim()
+                      script: "ls -d ${servicesDir}/*/ 2>/dev/null | grep -v '@tmp' | xargs -n 1 basename || true",
+                      returnStdout: true
+                   ).trim()
 
                     if (!services) {
                         echo "⚠️ No services found in ${servicesDir}"
