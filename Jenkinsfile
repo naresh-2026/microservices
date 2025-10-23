@@ -78,7 +78,7 @@ pipeline {
 
                             // Secure Docker login and build/push
                             withCredentials([
-                                usernamePassword(credentialsId: 'dockerhub', 
+                                usernamePassword(credentialsId: 'dockerhub-username', 
                                                  usernameVariable: 'DOCKERHUB_USERNAME', 
                                                  passwordVariable: 'DOCKERHUB_TOKEN')
                             ]) {
