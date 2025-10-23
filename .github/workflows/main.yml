@@ -22,63 +22,83 @@ jobs:
           echo "Detected services: $services"
           echo "services=$services" >> $GITHUB_OUTPUT
 
-  build-test-push:
+  record-times:
     runs-on: ubuntu-latest
     needs: discover-services
-    strategy:
-      matrix:
-        service: ${{ fromJson(needs.discover-services.outputs.services) }}
-
+    outputs:
+      trigger_time: ${{ steps.times.outputs.trigger_time }}
+      start_time: ${{ steps.times.outputs.start_time }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Record trigger and start time
         id: times
         run: |
           trigger_time=$(date -d "${{ github.event.head_commit.timestamp }}" +%s)
           start_time=$(date +%s)
           delay=$((start_time - trigger_time))
-          echo "trigger_time=${trigger_time}" >> $GITHUB_ENV
-          echo "start_time=${start_time}" >> $GITHUB_ENV
+          echo "Trigger time: $trigger_time"
+          echo "Start time: $start_time"
           echo "Trigger-to-start delay: ${delay} seconds"
+          echo "trigger_time=$trigger_time" >> $GITHUB_OUTPUT
+          echo "start_time=$start_time" >> $GITHUB_OUTPUT
+
+  build-test-push:
+    runs-on: ubuntu-latest
+    needs: [discover-services, record-times]
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.discover-services.outputs.services) }}
+    outputs:
+      service_durations: ${{ steps.collect.outputs.service_durations }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
 
-      - name: Build Go binary
-        working-directory: ./microservices/${{ matrix.service }}
+      - name: Build, Push & Measure Service Duration
+        id: collect
         run: |
+          services_dir="./microservices/${{ matrix.service }}"
+          start_service=$(date +%s)
+
+          echo "🚀 Building and deploying service: ${{ matrix.service }}"
+
+          cd "$services_dir"
+
           echo "🛠 Building Go binary for ${{ matrix.service }}"
           go mod tidy
           go build -o app .
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build Docker image
-        working-directory: ./microservices/${{ matrix.service }}
-        run: |
           echo "🐳 Building Docker image for ${{ matrix.service }}"
           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/githubactions:${{ matrix.service }} .
 
-      - name: Delay for 0.4 seconds
-        run: sleep 0.4
+          # 0.4s delay before pushing
+          sleep 0.4
 
-      - name: Push Docker image
-        working-directory: ./microservices/${{ matrix.service }}
-        run: |
           echo "📤 Pushing Docker image for ${{ matrix.service }}"
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/githubactions:${{ matrix.service }}
 
-      - name: Record end time and calculate duration
-        run: |
-          end_time=$(date +%s)
-          echo "Start time: ${{ env.start_time }}"
-          duration=$((end_time - ${{ env.start_time }}))
+          end_service=$(date +%s)
+          duration=$((end_service - start_service))
+
           echo "✅ Deployment of ${{ matrix.service }} took ${duration} seconds"
+
+          # Pass service duration to outputs
+          echo "service_durations=${{ matrix.service }}:${duration}" >> $GITHUB_OUTPUT
+
+  final-report:
+    runs-on: ubuntu-latest
+    needs: build-test-push
+    steps:
+      - name: Calculate total deployment duration
+        run: |
+          start_time=${{ needs.record-times.outputs.start_time }}
+          end_time=$(date +%s)
+          total_duration=$((end_time - start_time))
+
+          echo "🎯 Total pipeline deployment completed!"
+          echo "⏱️ Total trigger-to-start delay: $((start_time - $(date -d "${{ github.event.head_commit.timestamp }}" +%s))) seconds"
+          echo "🕒 Total deployment duration: ${total_duration} seconds"
