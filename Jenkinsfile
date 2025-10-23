@@ -6,7 +6,7 @@ pipeline {
 
     options {
         timestamps()
-        ansiColor('xterm') // Requires AnsiColor plugin
+        ansiColor('xterm')
     }
 
     stages {
@@ -16,7 +16,6 @@ pipeline {
                     echo "📦 Starting CI/CD Pipeline"
 
                     // Record trigger and pipeline start times
-                    //def triggerTime = env.GIT_COMMITTER_DATE //?: 
                     def triggerTime = sh(
                         script: "git log -1 --pretty=format:'%cI'",
                         returnStdout: true
@@ -48,62 +47,65 @@ pipeline {
             steps {
                 script {
                     def servicesDir = "microservices"
-                    // Safely list directories
+                    // List services ignoring @tmp directories
                     def services = sh(
-                      script: "ls -d ${servicesDir}/*/ 2>/dev/null | grep -v '@tmp' | xargs -n 1 basename || true",
-                      returnStdout: true
-                   ).trim()
+                        script: "ls -d ${servicesDir}/*/ 2>/dev/null | grep -v '@tmp' | xargs -n 1 basename || true",
+                        returnStdout: true
+                    ).trim().split("\n")
 
                     if (!services) {
                         echo "⚠️ No services found in ${servicesDir}"
                         services = []
-                    } else {
-                        services = services.split("\n")
                     }
 
                     echo "🔍 Detected services: ${services.join(', ')}"
 
-                    // Loop through services
+                    // Build a parallel map for each service
+                    def parallelSteps = [:]
+
                     for (serviceName in services) {
-                        echo "🚀 Building and deploying service: ${serviceName}"
-                        def startTime = sh(script: "date +%s", returnStdout: true).trim()
+                        // Need to wrap in closure to avoid groovy scoping issues
+                        def svc = serviceName
+                        parallelSteps[svc] = {
+                            stage("Deploy ${svc}") {
+                                def startTime = sh(script: "date +%s", returnStdout: true).trim()
+                                dir("${servicesDir}/${svc}") {
+                                    // Build Go binary
+                                    sh """
+                                        echo "🛠 Building Go binary for ${svc}"
+                                        go mod tidy
+                                        go build -o app .
+                                    """
 
-                        dir("${servicesDir}/${serviceName}") {
-                            // Build Go binary
-                            sh """
-                                echo "🛠 Building Go binary for ${serviceName}"
-                                go mod tidy
-                                go build -o app .
-                            """
+                                    // Docker build and push
+                                    withCredentials([
+                                        usernamePassword(credentialsId: 'dockerhub-username', 
+                                                         usernameVariable: 'DOCKERHUB_USERNAME', 
+                                                         passwordVariable: 'DOCKERHUB_TOKEN')
+                                    ]) {
+                                        sh """
+                                            echo "🐳 Building Docker image for ${svc}"
+                                            docker build -t ${DOCKERHUB_USERNAME}/githubactions:${svc} .
+                                        """
+                                        sh 'sleep 0.4'
+                                        sh """
+                                            echo "📤 Logging into Docker Hub"
+                                            echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
 
-                            // Secure Docker login and build/push
-                            withCredentials([
-                                usernamePassword(credentialsId: 'dockerhub-username', 
-                                                 usernameVariable: 'DOCKERHUB_USERNAME', 
-                                                 passwordVariable: 'DOCKERHUB_TOKEN')
-                            ]) {
-                                sh """
-                                    echo "🐳 Building Docker image for ${serviceName}"
-                                    docker build -t ${DOCKERHUB_USERNAME}/githubactions:${serviceName} .
-
-                                """
-                                // Delay after building but before pushing for testing
-                                sh 'sleep 0.4'
-
-                                sh """
-                                    echo "📤 Logging into Docker Hub"
-                                    echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-
-                                    echo "📤 Pushing Docker image for ${serviceName}"
-                                    docker push ${DOCKERHUB_USERNAME}/githubactions:${serviceName}
-                                """
+                                            echo "📤 Pushing Docker image for ${svc}"
+                                            docker push ${DOCKERHUB_USERNAME}/githubactions:${svc}
+                                        """
+                                    }
+                                }
+                                def endTime = sh(script: "date +%s", returnStdout: true).trim()
+                                def duration = endTime.toInteger() - startTime.toInteger()
+                                echo "✅ Deployment of ${svc} took ${duration} seconds"
                             }
                         }
-
-                        def endTime = sh(script: "date +%s", returnStdout: true).trim()
-                        def duration = endTime.toInteger() - startTime.toInteger()
-                        echo "✅ Deployment of ${serviceName} took ${duration} seconds"
                     }
+
+                    // Execute all services in parallel
+                    parallel parallelSteps
                 }
             }
         }
