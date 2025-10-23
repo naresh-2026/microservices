@@ -6,8 +6,24 @@ on:
       - main
 
 jobs:
+  initialize-pipeline:
+    runs-on: ubuntu-latest
+    outputs:
+      initial_time: ${{ steps.init.outputs.initial_time }}
+    steps:
+      - name: Record pipeline trigger and initial start time
+        id: init
+        run: |
+          initial_time=$(date +%s)
+          trigger_time=$(date -d "${{ github.event.head_commit.timestamp }}" +%s)
+          echo "Pipeline initial start time: $initial_time"
+          echo "Pipeline trigger time: $trigger_time"
+          echo "initial_time=$initial_time" >> $GITHUB_OUTPUT
+          echo "trigger_time=$trigger_time" >> $GITHUB_OUTPUT
+
   discover-services:
     runs-on: ubuntu-latest
+    needs: initialize-pipeline
     outputs:
       services: ${{ steps.discover.outputs.services }}
     steps:
@@ -18,87 +34,78 @@ jobs:
         id: discover
         run: |
           cd microservices
-          services=$(ls -d */ | sed 's#/##' | jq -R . | jq -s -c .)
+          services=$(ls -d */ | sed 's#/##' | jq -R . | jq -s .)
           echo "Detected services: $services"
           echo "services=$services" >> $GITHUB_OUTPUT
 
-  record-times:
+  build-test-push:
     runs-on: ubuntu-latest
-    needs: discover-services
-    outputs:
-      trigger_time: ${{ steps.times.outputs.trigger_time }}
-      start_time: ${{ steps.times.outputs.start_time }}
+    needs: [initialize-pipeline, discover-services]
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.discover-services.outputs.services) }}
+
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Record trigger and start time
         id: times
         run: |
           trigger_time=$(date -d "${{ github.event.head_commit.timestamp }}" +%s)
           start_time=$(date +%s)
           delay=$((start_time - trigger_time))
-          echo "Trigger time: $trigger_time"
-          echo "Start time: $start_time"
+          echo "trigger_time=${trigger_time}" >> $GITHUB_ENV
+          echo "start_time=${start_time}" >> $GITHUB_ENV
           echo "Trigger-to-start delay: ${delay} seconds"
-          echo "trigger_time=$trigger_time" >> $GITHUB_OUTPUT
-          echo "start_time=$start_time" >> $GITHUB_OUTPUT
-
-  build-test-push:
-    runs-on: ubuntu-latest
-    needs: [discover-services, record-times]
-    strategy:
-      matrix:
-        service: ${{ fromJson(needs.discover-services.outputs.services) }}
-    outputs:
-      service_durations: ${{ steps.collect.outputs.service_durations }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
 
-      - name: Build, Push & Measure Service Duration
-        id: collect
+      - name: Build Go binary
+        working-directory: ./microservices/${{ matrix.service }}
         run: |
-          services_dir="./microservices/${{ matrix.service }}"
-          start_service=$(date +%s)
-
-          echo "🚀 Building and deploying service: ${{ matrix.service }}"
-
-          cd "$services_dir"
-
           echo "🛠 Building Go binary for ${{ matrix.service }}"
           go mod tidy
           go build -o app .
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build Docker image
+        working-directory: ./microservices/${{ matrix.service }}
+        run: |
           echo "🐳 Building Docker image for ${{ matrix.service }}"
           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/githubactions:${{ matrix.service }} .
 
-          # 0.4s delay before pushing
-          sleep 0.4
+      - name: Delay for 0.4 seconds
+        run: sleep 0.4
 
+      - name: Push Docker image
+        working-directory: ./microservices/${{ matrix.service }}
+        run: |
           echo "📤 Pushing Docker image for ${{ matrix.service }}"
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/githubactions:${{ matrix.service }}
 
-          end_service=$(date +%s)
-          duration=$((end_service - start_service))
-
+      - name: Record end time and calculate duration
+        run: |
+          end_time=$(date +%s)
+          echo "Start time: ${{ env.start_time }}"
+          duration=$((end_time - ${{ env.start_time }}))
           echo "✅ Deployment of ${{ matrix.service }} took ${duration} seconds"
 
-          # Pass service duration to outputs
-          echo "service_durations=${{ matrix.service }}:${duration}" >> $GITHUB_OUTPUT
-
-  final-report:
+  final-summary:
     runs-on: ubuntu-latest
     needs: build-test-push
     steps:
-      - name: Calculate total deployment duration
+      - name: Print total pipeline deployment time
         run: |
-          start_time=${{ needs.record-times.outputs.start_time }}
-          end_time=$(date +%s)
-          total_duration=$((end_time - start_time))
-
-          echo "🎯 Total pipeline deployment completed!"
-          echo "⏱️ Total trigger-to-start delay: $((start_time - $(date -d "${{ github.event.head_commit.timestamp }}" +%s))) seconds"
-          echo "🕒 Total deployment duration: ${total_duration} seconds"
+          initial_time=${{ needs.initialize-pipeline.outputs.initial_time }}
+          total_end=$(date +%s)
+          total_duration=$((total_end - initial_time))
+          echo "🎯 Total pipeline deployment time: ${total_duration} seconds"
