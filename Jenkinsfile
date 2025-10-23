@@ -47,7 +47,7 @@ pipeline {
         stage('Build and Push Microservices') {
             steps {
                 script {
-                    def servicesDir = "microservices/microservices"
+                    def servicesDir = "microservices"
                     // Safely list directories
                     def services = sh(
                         script: "ls -d ${servicesDir}/*/ 2>/dev/null | xargs -n 1 basename || true",
