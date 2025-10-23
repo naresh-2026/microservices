@@ -34,7 +34,7 @@ jobs:
         id: discover
         run: |
           cd microservices
-          services=$(ls -d */ | sed 's#/##' | jq -R . | jq -s .)
+          services=$(ls -d */ | sed 's#/##' | jq -R . | jq -s -c .)
           echo "Detected services: $services"
           echo "services=$services" >> $GITHUB_OUTPUT
 
